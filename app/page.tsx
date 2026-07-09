@@ -1,65 +1,113 @@
-import Image from "next/image";
+"use client"
 
-export default function Home() {
+import { useEffect, useState } from "react"
+import Link from "next/link"
+import type { PingResult } from "@/types"
+
+interface EnvItem {
+  name: string
+  set: boolean
+}
+
+interface StatusData {
+  env: EnvItem[]
+  checks: PingResult[]
+}
+
+const testPages = [
+  { href: "/auth-test", label: "Auth test (NextAuth)" },
+  { href: "/mongo-test", label: "Mongo test (CRUD)" },
+  { href: "/cloudinary-test", label: "Cloudinary test (upload)" },
+  { href: "/stripe-test", label: "Stripe test (payments)" },
+  { href: "/resend-test", label: "Resend test (email)" },
+  { href: "/pusher-test", label: "Pusher test (realtime)" },
+]
+
+export default function StatusDashboard() {
+  const [data, setData] = useState<StatusData | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState("")
+
+  useEffect(() => {
+    async function load() {
+      setLoading(true)
+      setError("")
+      try {
+        const res = await fetch("/api/status")
+        const json = await res.json()
+        if (!json.ok) setError(json.error || "Failed to load status")
+        else setData(json.data)
+      } catch {
+        setError("Network error loading status")
+      } finally {
+        setLoading(false)
+      }
+    }
+    load()
+  }, [])
+
   return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the page.tsx file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
-        </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={16}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
-        </div>
-      </main>
+    <div className="flex flex-col gap-8">
+      <div>
+        <h1 className="text-2xl font-bold">Hackathon Starter Skeleton</h1>
+        <p className="text-sm">Plumbing status dashboard. This is a test kit, not the final product.</p>
+      </div>
+
+      {error && <p className="text-red-600">Error: {error}</p>}
+      {loading && <p>Running checks...</p>}
+
+      {data && (
+        <>
+          <section className="flex flex-col gap-2">
+            <h2 className="text-lg font-semibold">Live service checks</h2>
+            <ul className="flex flex-col gap-1">
+              {data.checks.map((c) => (
+                <li key={c.service} className="border p-2 rounded flex justify-between gap-3">
+                  <span>{c.service}</span>
+                  <span className={c.ok ? "text-green-700" : "text-red-600"}>
+                    {c.ok ? "OK" : "FAIL"} — {c.detail}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </section>
+
+          <section className="flex flex-col gap-2">
+            <h2 className="text-lg font-semibold">Environment variables</h2>
+            <table className="border-collapse w-full text-sm">
+              <thead>
+                <tr>
+                  <th className="border p-2 text-left">Variable</th>
+                  <th className="border p-2 text-left">Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                {data.env.map((v) => (
+                  <tr key={v.name}>
+                    <td className="border p-2 font-mono">{v.name}</td>
+                    <td className={`border p-2 ${v.set ? "text-green-700" : "text-red-600"}`}>
+                      {v.set ? "SET" : "MISSING"}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </section>
+        </>
+      )}
+
+      <section className="flex flex-col gap-2">
+        <h2 className="text-lg font-semibold">Test pages</h2>
+        <ul className="flex flex-col gap-1">
+          {testPages.map((p) => (
+            <li key={p.href}>
+              <Link href={p.href} className="underline">
+                {p.label}
+              </Link>
+            </li>
+          ))}
+        </ul>
+      </section>
     </div>
-  );
+  )
 }
