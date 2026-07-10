@@ -22,7 +22,7 @@ export const metadata: Metadata = {
 const navLinks = [
   { href: "/", label: "Status" },
   { href: "/auth-test", label: "Auth" },
-  { href: "/mongo-test", label: "Mongo" },
+  { href: "/firestore-test", label: "Firestore" },
   { href: "/cloudinary-test", label: "Cloudinary" },
   { href: "/stripe-test", label: "Stripe" },
   { href: "/resend-test", label: "Resend" },

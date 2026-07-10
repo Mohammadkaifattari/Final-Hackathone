@@ -1,10 +1,21 @@
 "use client"
 
-import { useState } from "react"
-import { signIn, signOut, useSession } from "next-auth/react"
+import { useState, useEffect } from "react"
+import {
+  createUserWithEmailAndPassword,
+  signInWithEmailAndPassword,
+  signInWithPopup,
+  GoogleAuthProvider,
+  signOut,
+  onAuthStateChanged,
+  updateProfile,
+} from "firebase/auth"
+import { auth } from "@/lib/firebase"
+import type { User } from "firebase/auth"
 
 export default function AuthTestPage() {
-  const { data: session, status } = useSession()
+  const [user, setUser] = useState<User | null>(null)
+  const [loading, setLoading] = useState(true)
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
   const [name, setName] = useState("")
@@ -12,25 +23,27 @@ export default function AuthTestPage() {
   const [error, setError] = useState("")
   const [busy, setBusy] = useState(false)
 
+  useEffect(() => {
+    const unsub = onAuthStateChanged(auth, (u) => {
+      setUser(u)
+      setLoading(false)
+    })
+    return () => unsub()
+  }, [])
+
   async function handleSignup(e: React.FormEvent) {
     e.preventDefault()
     setBusy(true)
     setError("")
     setMessage("")
     try {
-      const res = await fetch("/api/signup", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email, password, name }),
-      })
-      const data = await res.json()
-      if (!data.ok) {
-        setError(data.error || "Signup failed")
-      } else {
-        setMessage("Account created. You can now log in.")
+      const cred = await createUserWithEmailAndPassword(auth, email, password)
+      if (name) {
+        await updateProfile(cred.user, { displayName: name })
       }
-    } catch {
-      setError("Network error during signup")
+      setMessage("Account created and logged in.")
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Signup failed")
     } finally {
       setBusy(false)
     }
@@ -41,32 +54,49 @@ export default function AuthTestPage() {
     setBusy(true)
     setError("")
     setMessage("")
-    const res = await signIn("credentials", { email, password, redirect: false })
-    if (res?.error) {
-      setError(res.error)
-    } else {
+    try {
+      await signInWithEmailAndPassword(auth, email, password)
       setMessage("Logged in.")
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Login failed")
+    } finally {
+      setBusy(false)
     }
-    setBusy(false)
   }
 
-  if (status === "loading") {
-    return <p>Loading session...</p>
+  async function handleGoogleLogin() {
+    setBusy(true)
+    setError("")
+    setMessage("")
+    try {
+      await signInWithPopup(auth, new GoogleAuthProvider())
+      setMessage("Logged in with Google.")
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Google login failed")
+    } finally {
+      setBusy(false)
+    }
   }
+
+  async function handleLogout() {
+    await signOut(auth)
+    setMessage("Logged out.")
+  }
+
+  if (loading) return <p>Loading...</p>
 
   return (
     <div className="flex flex-col gap-6">
-      <h1 className="text-2xl font-bold">Auth Test (NextAuth)</h1>
+      <h1 className="text-2xl font-bold">Auth Test (Firebase)</h1>
 
       <section className="border p-4 rounded">
-        <h2 className="font-semibold mb-2">Current session</h2>
-        {session?.user ? (
+        <h2 className="font-semibold mb-2">Current user</h2>
+        {user ? (
           <div className="flex flex-col gap-2">
-            <p>Signed in as: {session.user.email}</p>
-            <button
-              className="border px-3 py-1 rounded w-fit"
-              onClick={() => signOut({ redirect: false })}
-            >
+            <p>Email: {user.email}</p>
+            <p>Name: {user.displayName || "(none)"}</p>
+            <p>UID: {user.uid}</p>
+            <button className="border px-3 py-1 rounded w-fit" onClick={handleLogout}>
               Logout
             </button>
           </div>
@@ -134,10 +164,7 @@ export default function AuthTestPage() {
 
       <section className="border p-4 rounded">
         <h2 className="font-semibold mb-2">Google OAuth</h2>
-        <button
-          className="border px-3 py-1 rounded"
-          onClick={() => signIn("google")}
-        >
+        <button className="border px-3 py-1 rounded" onClick={handleGoogleLogin} disabled={busy}>
           Sign in with Google
         </button>
       </section>

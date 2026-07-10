@@ -1,17 +1,15 @@
 import { NextResponse } from "next/server"
-import { connectToDatabase } from "@/lib/mongodb"
+import { initializeApp, cert, getApps, App } from "firebase-admin/app"
+import { getFirestore } from "firebase-admin/firestore"
 import { getStripe } from "@/lib/stripe"
 import { getCloudinary } from "@/lib/cloudinary"
 import { getPusherServer } from "@/lib/pusher"
 import type { PingResult } from "@/types"
 
-// All env vars the skeleton expects. Reported as SET / MISSING.
 const ENV_VARS = [
-  "MONGODB_URI",
-  "NEXTAUTH_URL",
-  "NEXTAUTH_SECRET",
-  "GOOGLE_CLIENT_ID",
-  "GOOGLE_CLIENT_SECRET",
+  "FIREBASE_PROJECT_ID",
+  "FIREBASE_CLIENT_EMAIL",
+  "FIREBASE_PRIVATE_KEY",
   "NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY",
   "STRIPE_SECRET_KEY",
   "STRIPE_WEBHOOK_SECRET",
@@ -26,13 +24,32 @@ const ENV_VARS = [
   "NEXT_PUBLIC_PUSHER_CLUSTER",
 ] as const
 
-async function pingMongo(): Promise<PingResult> {
+let adminApp: App | null = null
+
+function getAdminApp(): App {
+  if (adminApp) return adminApp
+  if (!getApps().length) {
+    adminApp = initializeApp({
+      credential: cert({
+        projectId: process.env.FIREBASE_PROJECT_ID,
+        clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
+        privateKey: process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, "\n"),
+      }),
+    })
+  } else {
+    adminApp = getApps()[0]
+  }
+  return adminApp
+}
+
+async function pingFirestore(): Promise<PingResult> {
   try {
-    const conn = await connectToDatabase()
-    const ready = conn.connection.readyState === 1
-    return { service: "MongoDB", ok: ready, detail: ready ? "connected" : "not connected" }
+    getAdminApp()
+    const db = getFirestore()
+    await db.listCollections()
+    return { service: "Firestore", ok: true, detail: "connected" }
   } catch (err) {
-    return { service: "MongoDB", ok: false, detail: err instanceof Error ? err.message : "error" }
+    return { service: "Firestore", ok: false, detail: err instanceof Error ? err.message : "error" }
   }
 }
 
@@ -76,8 +93,8 @@ export async function GET() {
     set: Boolean(process.env[name]),
   }))
 
-  const [mongo, stripe] = await Promise.all([pingMongo(), pingStripe()])
-  const checks: PingResult[] = [mongo, stripe, pingCloudinary(), pingPusher(), pingResend()]
+  const [firestore, stripe] = await Promise.all([pingFirestore(), pingStripe()])
+  const checks: PingResult[] = [firestore, stripe, pingCloudinary(), pingPusher(), pingResend()]
 
   return NextResponse.json({ ok: true, data: { env, checks } })
 }
