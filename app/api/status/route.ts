@@ -1,15 +1,12 @@
 import { NextResponse } from "next/server"
-import { initializeApp, cert, getApps, App } from "firebase-admin/app"
-import { getFirestore } from "firebase-admin/firestore"
+import { connectToDatabase } from "@/lib/mongodb"
 import { getStripe } from "@/lib/stripe"
 import { getCloudinary } from "@/lib/cloudinary"
 import { getPusherServer } from "@/lib/pusher"
 import type { PingResult } from "@/types"
 
 const ENV_VARS = [
-  "FIREBASE_PROJECT_ID",
-  "FIREBASE_CLIENT_EMAIL",
-  "FIREBASE_PRIVATE_KEY",
+  "MONGODB_URI",
   "NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY",
   "STRIPE_SECRET_KEY",
   "STRIPE_WEBHOOK_SECRET",
@@ -24,32 +21,12 @@ const ENV_VARS = [
   "NEXT_PUBLIC_PUSHER_CLUSTER",
 ] as const
 
-let adminApp: App | null = null
-
-function getAdminApp(): App {
-  if (adminApp) return adminApp
-  if (!getApps().length) {
-    adminApp = initializeApp({
-      credential: cert({
-        projectId: process.env.FIREBASE_PROJECT_ID,
-        clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
-        privateKey: process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, "\n"),
-      }),
-    })
-  } else {
-    adminApp = getApps()[0]
-  }
-  return adminApp
-}
-
-async function pingFirestore(): Promise<PingResult> {
+async function pingMongoDB(): Promise<PingResult> {
   try {
-    getAdminApp()
-    const db = getFirestore()
-    await db.listCollections()
-    return { service: "Firestore", ok: true, detail: "connected" }
+    await connectToDatabase()
+    return { service: "MongoDB", ok: true, detail: "connected" }
   } catch (err) {
-    return { service: "Firestore", ok: false, detail: err instanceof Error ? err.message : "error" }
+    return { service: "MongoDB", ok: false, detail: err instanceof Error ? err.message : "error" }
   }
 }
 
@@ -93,8 +70,8 @@ export async function GET() {
     set: Boolean(process.env[name]),
   }))
 
-  const [firestore, stripe] = await Promise.all([pingFirestore(), pingStripe()])
-  const checks: PingResult[] = [firestore, stripe, pingCloudinary(), pingPusher(), pingResend()]
+  const [mongodb, stripe] = await Promise.all([pingMongoDB(), pingStripe()])
+  const checks: PingResult[] = [mongodb, stripe, pingCloudinary(), pingPusher(), pingResend()]
 
   return NextResponse.json({ ok: true, data: { env, checks } })
 }

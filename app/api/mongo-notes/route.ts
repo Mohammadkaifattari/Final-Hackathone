@@ -1,54 +1,31 @@
 import { NextResponse } from "next/server"
-import { getAuth } from "firebase-admin/auth"
-import { getFirestore } from "firebase-admin/firestore"
-import { initializeApp, cert, getApps } from "firebase-admin/app"
+import { getServerSession } from "next-auth"
+import { authOptions } from "@/lib/auth"
+import { connectToDatabase } from "@/lib/mongodb"
+import { Note } from "@/models/Note"
 
-// Initialize Firebase Admin (once)
-if (!getApps().length) {
-  initializeApp({
-    credential: cert({
-      projectId: process.env.FIREBASE_PROJECT_ID,
-      clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
-      privateKey: process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, "\n"),
-    }),
-  })
+async function getUserFromSession(): Promise<string | null> {
+  const session = await getServerSession(authOptions)
+  if (!session?.user?.id) return null
+  return session.user.id
 }
 
-const db = getFirestore()
-
-// Verify Firebase ID token from Authorization header
-async function getUserFromToken(req: Request): Promise<string | null> {
-  const authHeader = req.headers.get("Authorization")
-  if (!authHeader?.startsWith("Bearer ")) return null
-  const token = authHeader.slice(7)
-  try {
-    const decoded = await getAuth().verifyIdToken(token)
-    return decoded.uid
-  } catch {
-    return null
-  }
-}
-
-// GET - read all notes for user
-export async function GET(req: Request) {
-  const userId = await getUserFromToken(req)
+export async function GET() {
+  const userId = await getUserFromSession()
   if (!userId) {
     return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 })
   }
   try {
-    const snapshot = await db
-      .collection("notes")
-      .where("userId", "==", userId)
-      .orderBy("updatedAt", "desc")
-      .get()
-
-    const notes = snapshot.docs.map((d) => ({
-      id: d.id,
-      ...d.data(),
-      createdAt: d.data().createdAt?.toDate?.()?.toISOString?.() ?? "",
-      updatedAt: d.data().updatedAt?.toDate?.()?.toISOString?.() ?? "",
+    await connectToDatabase()
+    const docs = await Note.find({ userId }).sort({ updatedAt: -1 }).lean()
+    const notes = docs.map((d) => ({
+      id: d._id.toString(),
+      title: d.title,
+      content: d.content,
+      userId: d.userId,
+      createdAt: d.createdAt?.toISOString?.() ?? "",
+      updatedAt: d.updatedAt?.toISOString?.() ?? "",
     }))
-
     return NextResponse.json({ ok: true, data: notes })
   } catch (err) {
     const message = err instanceof Error ? err.message : "Failed to load notes"
@@ -56,9 +33,8 @@ export async function GET(req: Request) {
   }
 }
 
-// POST - create note
 export async function POST(req: Request) {
-  const userId = await getUserFromToken(req)
+  const userId = await getUserFromSession()
   if (!userId) {
     return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 })
   }
@@ -67,17 +43,22 @@ export async function POST(req: Request) {
     if (typeof title !== "string" || !title.trim()) {
       return NextResponse.json({ ok: false, error: "Title is required" }, { status: 400 })
     }
-    const now = new Date()
-    const docRef = await db.collection("notes").add({
+    await connectToDatabase()
+    const doc = await Note.create({
       title: title.trim(),
       content: typeof content === "string" ? content : "",
       userId,
-      createdAt: now,
-      updatedAt: now,
     })
     return NextResponse.json({
       ok: true,
-      data: { id: docRef.id, title: title.trim(), content: content || "", userId },
+      data: {
+        id: doc._id.toString(),
+        title: doc.title,
+        content: doc.content,
+        userId: doc.userId,
+        createdAt: doc.createdAt?.toISOString?.() ?? "",
+        updatedAt: doc.updatedAt?.toISOString?.() ?? "",
+      },
     })
   } catch (err) {
     const message = err instanceof Error ? err.message : "Failed to create note"
@@ -85,9 +66,8 @@ export async function POST(req: Request) {
   }
 }
 
-// PUT - update note
 export async function PUT(req: Request) {
-  const userId = await getUserFromToken(req)
+  const userId = await getUserFromSession()
   if (!userId) {
     return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 })
   }
@@ -96,18 +76,15 @@ export async function PUT(req: Request) {
     if (typeof id !== "string") {
       return NextResponse.json({ ok: false, error: "Note id is required" }, { status: 400 })
     }
-
-    // Verify ownership
-    const noteDoc = await db.collection("notes").doc(id).get()
-    if (!noteDoc.exists || noteDoc.data()?.userId !== userId) {
+    await connectToDatabase()
+    const doc = await Note.findOneAndUpdate(
+      { _id: id, userId },
+      { $set: { ...(typeof title === "string" && { title: title.trim() }), ...(typeof content === "string" && { content }), updatedAt: new Date() } },
+      { new: false }
+    )
+    if (!doc) {
       return NextResponse.json({ ok: false, error: "Note not found" }, { status: 404 })
     }
-
-    const updateData: Record<string, unknown> = { updatedAt: new Date() }
-    if (typeof title === "string") updateData.title = title.trim()
-    if (typeof content === "string") updateData.content = content
-
-    await db.collection("notes").doc(id).update(updateData)
     return NextResponse.json({ ok: true })
   } catch (err) {
     const message = err instanceof Error ? err.message : "Failed to update note"
@@ -115,9 +92,8 @@ export async function PUT(req: Request) {
   }
 }
 
-// DELETE - delete note
 export async function DELETE(req: Request) {
-  const userId = await getUserFromToken(req)
+  const userId = await getUserFromSession()
   if (!userId) {
     return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 })
   }
@@ -127,14 +103,11 @@ export async function DELETE(req: Request) {
     if (!id) {
       return NextResponse.json({ ok: false, error: "Note id is required" }, { status: 400 })
     }
-
-    // Verify ownership
-    const noteDoc = await db.collection("notes").doc(id).get()
-    if (!noteDoc.exists || noteDoc.data()?.userId !== userId) {
+    await connectToDatabase()
+    const doc = await Note.findOneAndDelete({ _id: id, userId })
+    if (!doc) {
       return NextResponse.json({ ok: false, error: "Note not found" }, { status: 404 })
     }
-
-    await db.collection("notes").doc(id).delete()
     return NextResponse.json({ ok: true })
   } catch (err) {
     const message = err instanceof Error ? err.message : "Failed to delete note"
