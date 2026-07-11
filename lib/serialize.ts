@@ -74,7 +74,7 @@ export function serializeIssue(
     id: String(i._id),
     issueNumber: i.issueNumber,
     asset: {
-      id: String(i.asset),
+      id: String((i.asset as { _id?: unknown })?._id ?? i.asset),
       name: asset?.name ?? "Unknown asset",
       assetCode: asset?.assetCode ?? "—",
       publicId: asset?.publicId ?? "",
