@@ -2,7 +2,10 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useState } from "react";
+import { signOut } from "next-auth/react";
 import { Gauge, Package, ClipboardList, Wrench, History, Menu, X, LogOut } from "lucide-react";
+import { initials } from "@/lib/format";
+import type { Role } from "@/lib/types";
 
 const NAV = [
   { href: "/console", label: "Dashboard", icon: Gauge, exact: true },
@@ -12,7 +15,7 @@ const NAV = [
   { href: "/console/history", label: "History", icon: History, exact: false },
 ];
 
-export function Sidebar() {
+export function Sidebar({ user }: { user: { name: string; role: Role } }) {
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
 
@@ -59,15 +62,17 @@ export function Sidebar() {
     <div className="border-t border-line px-3 py-3">
       <div className="mb-2 flex items-center gap-2.5 rounded-lg px-3 py-2">
         <div className="flex h-8 w-8 items-center justify-center rounded-full bg-surface-2 text-xs font-semibold text-foreground">
-          AK
+          {initials(user.name)}
         </div>
         <div className="leading-tight">
-          <p className="text-xs font-semibold text-foreground">Ayesha Khan</p>
-          <p className="text-[10px] text-muted">Admin</p>
+          <p className="text-xs font-semibold text-foreground">{user.name}</p>
+          <p className="text-[10px] capitalize text-muted">{user.role}</p>
         </div>
       </div>
-      {/* Phase 2 replaces this with a real sign-out */}
-      <button className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-xs font-medium text-muted hover:bg-surface-2 hover:text-foreground">
+      <button
+        onClick={() => signOut({ callbackUrl: "/login" })}
+        className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-xs font-medium text-muted hover:bg-surface-2 hover:text-foreground"
+      >
         <LogOut size={16} />
         Sign out
       </button>
