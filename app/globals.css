@@ -1,26 +1,94 @@
 @import "tailwindcss";
 
+/* ============================================================
+   MaintainIQ — design tokens (dark ops-console, cyan accent)
+   ============================================================ */
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --background: oklch(0.16 0.012 260);
+  --surface: oklch(0.205 0.012 260);
+  --surface-2: oklch(0.245 0.012 260);
+  --foreground: oklch(0.97 0.005 260);
+  --muted: oklch(0.68 0.015 260);
+  --line: oklch(0.30 0.012 260);
+
+  --accent: oklch(0.78 0.14 200);
+  --accent-hover: oklch(0.82 0.13 200);
+  --accent-fg: oklch(0.18 0.04 220);
+
+  /* functional status colors */
+  --status-ok: oklch(0.72 0.16 152);        /* Operational — emerald */
+  --status-report: oklch(0.80 0.15 85);     /* Issue Reported — amber */
+  --status-inspect: oklch(0.80 0.15 85);    /* Under Inspection — amber */
+  --status-maint: oklch(0.73 0.17 55);      /* Under Maintenance — orange */
+  --status-down: oklch(0.62 0.22 25);       /* Out of Service — red */
+  --status-retired: oklch(0.60 0.012 260);  /* Retired — muted slate */
+
+  --critical: oklch(0.60 0.24 25);          /* critical priority — loud red */
 }
 
 @theme inline {
   --color-background: var(--background);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --color-muted: var(--muted);
+  --color-line: var(--line);
+  --color-accent: var(--accent);
+  --color-accent-hover: var(--accent-hover);
+  --color-accent-fg: var(--accent-fg);
+
+  --font-display: var(--font-space-grotesk);
+  --font-body: var(--font-inter);
+  --font-sans: var(--font-inter);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+@layer base {
+  html {
+    color-scheme: dark;
   }
+  body {
+    background: var(--background);
+    color: var(--foreground);
+    font-family: var(--font-body), Inter, system-ui, sans-serif;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+  }
+  h1, h2, h3, h4, h5 {
+    font-family: var(--font-display), "Space Grotesk", system-ui, sans-serif;
+    letter-spacing: -0.01em;
+  }
+  /* accessible focus ring */
+  *:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+    border-radius: 4px;
+  }
+  /* custom scrollbar (subtle, ops-console feel) */
+  ::-webkit-scrollbar { width: 10px; height: 10px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb {
+    background: var(--line);
+    border-radius: 9999px;
+    border: 2px solid var(--background);
+  }
+  ::-webkit-scrollbar-thumb:hover { background: var(--muted); }
 }
 
-body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+/* Utility helpers (tailwind classes already cover most; these are conveniences) */
+.text-balance { text-wrap: balance; }
+.text-pretty { text-wrap: pretty; }
+
+/* Print: used for the QR/print-label sheet so only the label prints */
+@media print {
+  body * { visibility: hidden; }
+  .print-area, .print-area * { visibility: visible; }
+  .print-area {
+    position: fixed;
+    inset: 0;
+    margin: 0;
+    padding: 24px;
+    background: #fff;
+    color: #000;
+  }
+  .no-print { display: none !important; }
 }
