@@ -4,6 +4,6 @@ import { NewAssetForm } from "./NewAssetForm";
 
 // Only admin + supervisor can register assets.
 export default async function NewAssetPage() {
-  await requireRole(["admin", "supervisor"]);
+  await requireRole(["admin", "supervisor", "technician"]);
   return <NewAssetForm />;
 }

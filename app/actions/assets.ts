@@ -5,7 +5,7 @@ import { connectDB } from "@/lib/mongodb";
 import Asset from "@/models/Asset";
 import HistoryEvent from "@/models/HistoryEvent";
 import { generatePublicId } from "@/lib/public-id";
-import { getSession } from "@/lib/session";
+import { getSession, requireRole } from "@/lib/session";
 import { can } from "@/lib/business-rules";
 import { formatIssueNumber } from "@/lib/format";
 
@@ -28,10 +28,7 @@ export interface CreateAssetInput {
 }
 
 export async function createAssetAction(input: CreateAssetInput) {
-  const session = await getSession();
-  if (!session || !can(session.user.role, "manageAssets")) {
-    return { ok: false, error: "You don’t have permission to register assets." };
-  }
+  const user = await requireRole(["admin", "supervisor", "technician"]);
 
   const name = input.name?.trim();
   const assetCode = input.assetCode?.trim().toUpperCase();
@@ -61,13 +58,13 @@ export async function createAssetAction(input: CreateAssetInput) {
       status: "Operational",
       assignedTechnician: (input.assignedTechnicianId || null) as any,
       publicId,
-      createdBy: session.user.id,
+      createdBy: user.id,
     });
 
     await HistoryEvent.log({
       asset: asset._id,
-      actor: session.user.name,
-      actorRef: session.user.id,
+      actor: user.name,
+      actorRef: user.id,
       action: "Asset registered and QR sticker generated",
       meta: { assetCode, publicId },
     });

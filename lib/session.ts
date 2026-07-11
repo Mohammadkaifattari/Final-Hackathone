@@ -51,8 +51,8 @@ export function can(role: Role | undefined, action: "manageAssets" | "assignIssu
   if (!role) return false;
   const caps: Record<Role, string[]> = {
     admin: ["manageAssets", "assignIssues", "manageAllIssues", "recordMaintenance"],
-    supervisor: ["assignIssues", "manageAllIssues"],
-    technician: ["recordMaintenance"],
+    supervisor: ["manageAssets", "assignIssues", "manageAllIssues"],
+    technician: ["manageAssets", "recordMaintenance"],
   };
   return caps[role].includes(action);
 }
