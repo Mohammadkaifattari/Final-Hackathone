@@ -1,7 +1,7 @@
 "use client";
-import { use, useState } from "react";
+import { useEffect, useState, useTransition } from "react";
 import Link from "next/link";
-import { notFound } from "next/navigation";
+import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
 import {
   ArrowLeft,
@@ -15,6 +15,7 @@ import {
   History,
   Lock,
   Pencil,
+  Loader2,
 } from "lucide-react";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { Card, CardHeader, Field, EmptyState } from "@/components/ui/primitives";
@@ -23,8 +24,12 @@ import { ISSUE_STATUSES, type IssueStatus } from "@/lib/types";
 import { formatCurrency, formatDateTime } from "@/lib/format";
 import { pageFade, fadeUp, stagger } from "@/lib/motion";
 import type { Issue, MaintenanceRecord as MaintenanceType, User, Asset } from "@/lib/types";
+import {
+  assignIssueAction,
+  transitionIssueAction,
+  recordMaintenanceAction,
+} from "@/app/actions/issues";
 
-// valid forward transitions per the business rules (Section 4)
 const NEXT_STATUSES: Record<IssueStatus, IssueStatus[]> = {
   Reported: ["Assigned", "Inspection Started"],
   Assigned: ["Inspection Started"],
@@ -35,6 +40,11 @@ const NEXT_STATUSES: Record<IssueStatus, IssueStatus[]> = {
   Closed: ["Reopened"],
   Reopened: ["Assigned", "Inspection Started"],
 };
+
+const inputCls =
+  "w-full rounded-lg border border-line bg-background px-3 py-2 text-sm text-foreground placeholder:text-muted focus:border-accent focus:outline-none disabled:opacity-50";
+
+type PartRow = { name: string; quantity: number; cost: number };
 
 export function IssueDetailView({
   issue,
@@ -47,13 +57,79 @@ export function IssueDetailView({
   asset: Asset | null;
   technicians: Pick<User, "id" | "name" | "role">[];
 }) {
+  const router = useRouter();
+  const [pending, startTransition] = useTransition();
+  const [error, setError] = useState<string | null>(null);
+
   const [status, setStatus] = useState<IssueStatus>(issue.status);
   const [assignedTo, setAssignedTo] = useState<string>(issue.assignedTo?.id ?? "");
 
+  const [showMaintForm, setShowMaintForm] = useState(false);
+  const [findings, setFindings] = useState("");
+  const [workPerformed, setWorkPerformed] = useState("");
+  const [parts, setParts] = useState<PartRow[]>([]);
+  const [cost, setCost] = useState("");
+  const [timeSpent, setTimeSpent] = useState("");
+  const [finalCondition, setFinalCondition] = useState("Good");
+
+  useEffect(() => {
+    setStatus(issue.status);
+    setAssignedTo(issue.assignedTo?.id ?? "");
+  }, [issue.status, issue.assignedTo?.id]);
+
   const isClosed = status === "Closed";
-  const isResolved = status === "Resolved";
   const needsMaintToResolve = status === "Maintenance In Progress" || status === "Inspection Started";
   const nextOptions = NEXT_STATUSES[status] ?? [];
+
+  const resetMaintForm = () => {
+    setFindings("");
+    setWorkPerformed("");
+    setParts([]);
+    setCost("");
+    setTimeSpent("");
+    setFinalCondition("Good");
+  };
+
+  const handleAssign = (newValue: string) => {
+    setAssignedTo(newValue);
+    setError(null);
+    startTransition(async () => {
+      const res = await assignIssueAction(issue.id, newValue);
+      if (!res.ok) setError(res.error ?? "Failed");
+      else router.refresh();
+    });
+  };
+
+  const handleTransition = (to: IssueStatus) => {
+    setError(null);
+    startTransition(async () => {
+      const res = await transitionIssueAction(issue.id, to);
+      if (!res.ok) setError(res.error ?? "Failed");
+      else router.refresh();
+    });
+  };
+
+  const handleRecordMaintenance = (e: React.FormEvent) => {
+    e.preventDefault();
+    setError(null);
+    startTransition(async () => {
+      const res = await recordMaintenanceAction({
+        issueId: issue.id,
+        findings: findings.trim(),
+        workPerformed: workPerformed.trim(),
+        parts: parts.filter((p) => p.name.trim()),
+        cost: cost ? Number(cost) : undefined,
+        timeSpent: timeSpent.trim() || undefined,
+        finalCondition: finalCondition.trim() || undefined,
+      });
+      if (!res.ok) setError(res.error ?? "Failed");
+      else {
+        setShowMaintForm(false);
+        resetMaintForm();
+        router.refresh();
+      }
+    });
+  };
 
   return (
     <motion.div variants={pageFade} initial="hidden" animate="show" className="mx-auto max-w-6xl space-y-6">
@@ -61,7 +137,6 @@ export function IssueDetailView({
         <ArrowLeft size={16} /> Issues
       </Link>
 
-      {/* header */}
       <header className="space-y-2">
         <div className="flex flex-wrap items-center gap-2.5">
           <span className="font-mono text-sm font-semibold text-muted">{issue.issueNumber}</span>
@@ -79,7 +154,6 @@ export function IssueDetailView({
       </header>
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
-        {/* main column */}
         <motion.div variants={stagger} initial="hidden" animate="show" className="space-y-6 lg:col-span-2">
           <motion.div variants={fadeUp}>
             <Card>
@@ -95,7 +169,6 @@ export function IssueDetailView({
           </Card>
           </motion.div>
 
-          {/* AI triage card */}
           <motion.div variants={fadeUp}>
           <Card>
             <CardHeader
@@ -139,7 +212,6 @@ export function IssueDetailView({
           </Card>
           </motion.div>
 
-          {/* maintenance records */}
           <motion.div variants={fadeUp}>
           <Card>
             <CardHeader title="Maintenance Records" subtitle={`${maintenance.length} record(s)`} icon={<Wrench size={16} />} />
@@ -186,29 +258,32 @@ export function IssueDetailView({
           </motion.div>
         </motion.div>
 
-        {/* sidebar: workflow controls */}
         <motion.div variants={stagger} initial="hidden" animate="show" className="space-y-6">
           <motion.div variants={fadeUp}>
           <Card>
             <CardHeader title="Workflow" icon={<History size={16} />} />
             <div className="space-y-4 px-5 py-4">
-              {/* assignment */}
+              {error && (
+                <p className="rounded-lg border border-[color-mix(in_oklch,var(--status-report)_30%,transparent)] bg-[color-mix(in_oklch,var(--status-report)_10%,transparent)] px-3 py-2 text-xs text-[var(--status-report)]">
+                  {error}
+                </p>
+              )}
+
               <div className="space-y-1.5">
                 <label className="inline-flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-muted">
                   <UserPlus size={13} /> Assigned Technician
                 </label>
                 <select
                   value={assignedTo}
-                  onChange={(e) => setAssignedTo(e.target.value)}
-                  disabled={isClosed}
-                  className="w-full rounded-lg border border-line bg-background px-3 py-2 text-sm text-foreground focus:border-accent focus:outline-none disabled:opacity-50"
+                  onChange={(e) => handleAssign(e.target.value)}
+                  disabled={isClosed || pending}
+                  className={inputCls}
                 >
                   <option value="">Unassigned</option>
                   {technicians.map((t) => <option key={t.id} value={t.id}>{t.name} ({t.role})</option>)}
                 </select>
               </div>
 
-              {/* status transition */}
               <div className="space-y-1.5">
                 <label className="text-xs font-semibold uppercase tracking-wider text-muted">Status</label>
                 <div className="rounded-lg border border-line bg-background px-3 py-2 text-sm font-medium text-foreground">
@@ -224,8 +299,9 @@ export function IssueDetailView({
                       return (
                         <button
                           key={s}
-                          onClick={() => setStatus(s)}
-                          disabled={blockedResolve}
+                          type="button"
+                          onClick={() => handleTransition(s)}
+                          disabled={blockedResolve || pending}
                           title={blockedResolve ? "Add a maintenance record first" : `Move to ${s}`}
                           className={`inline-flex items-center gap-1 rounded-md border px-2.5 py-1 text-[11px] font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
                             isResolve
@@ -233,7 +309,7 @@ export function IssueDetailView({
                               : "border-line text-muted hover:text-foreground hover:bg-surface-2"
                           }`}
                         >
-                          {isResolve ? <CheckCircle2 size={12} /> : <ArrowLeft size={12} className="rotate-180" />}
+                          {pending ? <Loader2 size={12} className="animate-spin" /> : isResolve ? <CheckCircle2 size={12} /> : <ArrowLeft size={12} className="rotate-180" />}
                           {s}
                         </button>
                       );
@@ -249,14 +325,167 @@ export function IssueDetailView({
                 )}
               </div>
 
-              {/* record maintenance CTA */}
               {!["Resolved", "Closed"].includes(status) && (
-                <button className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-accent px-3 py-2 text-sm font-medium text-accent-fg hover:bg-accent-hover">
-                  <Pencil size={14} /> Record Maintenance
-                </button>
+                <>
+                  {!showMaintForm ? (
+                    <button
+                      type="button"
+                      onClick={() => { setShowMaintForm(true); setError(null); }}
+                      disabled={pending}
+                      className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-accent px-3 py-2 text-sm font-medium text-accent-fg hover:bg-accent-hover disabled:opacity-50"
+                    >
+                      <Pencil size={14} /> Record Maintenance
+                    </button>
+                  ) : (
+                    <form onSubmit={handleRecordMaintenance} className="space-y-3 rounded-lg border border-line bg-background p-3">
+                      <p className="text-xs font-semibold uppercase tracking-wider text-muted">New maintenance record</p>
+                      <div className="space-y-1.5">
+                        <label className="text-xs font-medium text-foreground">Findings <span className="text-[var(--status-report)]">*</span></label>
+                        <textarea
+                          value={findings}
+                          onChange={(e) => setFindings(e.target.value)}
+                          required
+                          rows={2}
+                          disabled={pending}
+                          className={inputCls}
+                          placeholder="What did you find?"
+                        />
+                      </div>
+                      <div className="space-y-1.5">
+                        <label className="text-xs font-medium text-foreground">Work performed <span className="text-[var(--status-report)]">*</span></label>
+                        <textarea
+                          value={workPerformed}
+                          onChange={(e) => setWorkPerformed(e.target.value)}
+                          required
+                          rows={2}
+                          disabled={pending}
+                          className={inputCls}
+                          placeholder="What work was done?"
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <label className="text-xs font-medium text-foreground">Parts</label>
+                        {parts.map((p, i) => (
+                          <div key={i} className="grid grid-cols-3 gap-2">
+                            <input
+                              value={p.name}
+                              onChange={(e) => {
+                                const next = [...parts];
+                                next[i] = { ...next[i], name: e.target.value };
+                                setParts(next);
+                              }}
+                              disabled={pending}
+                              placeholder="Part name"
+                              className={inputCls}
+                            />
+                            <input
+                              type="number"
+                              min={1}
+                              value={p.quantity}
+                              onChange={(e) => {
+                                const next = [...parts];
+                                next[i] = { ...next[i], quantity: Number(e.target.value) || 1 };
+                                setParts(next);
+                              }}
+                              disabled={pending}
+                              placeholder="Qty"
+                              className={inputCls}
+                            />
+                            <div className="flex gap-1">
+                              <input
+                                type="number"
+                                min={0}
+                                step="0.01"
+                                value={p.cost}
+                                onChange={(e) => {
+                                  const next = [...parts];
+                                  next[i] = { ...next[i], cost: Number(e.target.value) || 0 };
+                                  setParts(next);
+                                }}
+                                disabled={pending}
+                                placeholder="Cost"
+                                className={inputCls}
+                              />
+                              <button
+                                type="button"
+                                onClick={() => setParts(parts.filter((_, idx) => idx !== i))}
+                                disabled={pending}
+                                className="shrink-0 rounded-md border border-line px-2 text-xs text-muted hover:bg-surface-2"
+                              >
+                                ×
+                              </button>
+                            </div>
+                          </div>
+                        ))}
+                        <button
+                          type="button"
+                          onClick={() => setParts([...parts, { name: "", quantity: 1, cost: 0 }])}
+                          disabled={pending}
+                          className="text-xs text-accent hover:underline"
+                        >
+                          + Add part
+                        </button>
+                      </div>
+                      <div className="grid grid-cols-2 gap-2">
+                        <div className="space-y-1.5">
+                          <label className="text-xs font-medium text-foreground">Total cost</label>
+                          <input
+                            type="number"
+                            min={0}
+                            step="0.01"
+                            value={cost}
+                            onChange={(e) => setCost(e.target.value)}
+                            disabled={pending}
+                            placeholder="0.00"
+                            className={inputCls}
+                          />
+                        </div>
+                        <div className="space-y-1.5">
+                          <label className="text-xs font-medium text-foreground">Time spent</label>
+                          <input
+                            value={timeSpent}
+                            onChange={(e) => setTimeSpent(e.target.value)}
+                            disabled={pending}
+                            placeholder="e.g. 45 minutes"
+                            className={inputCls}
+                          />
+                        </div>
+                      </div>
+                      <div className="space-y-1.5">
+                        <label className="text-xs font-medium text-foreground">Final condition</label>
+                        <select
+                          value={finalCondition}
+                          onChange={(e) => setFinalCondition(e.target.value)}
+                          disabled={pending}
+                          className={inputCls}
+                        >
+                          {(["Excellent", "Good", "Fair", "Poor"] as const).map((c) => (
+                            <option key={c} value={c}>{c}</option>
+                          ))}
+                        </select>
+                      </div>
+                      <div className="flex gap-2 pt-1">
+                        <button
+                          type="button"
+                          onClick={() => { setShowMaintForm(false); resetMaintForm(); }}
+                          disabled={pending}
+                          className="flex-1 rounded-lg border border-line px-3 py-2 text-sm text-muted hover:bg-surface-2 disabled:opacity-50"
+                        >
+                          Cancel
+                        </button>
+                        <button
+                          type="submit"
+                          disabled={pending || !findings.trim() || !workPerformed.trim()}
+                          className="inline-flex flex-1 items-center justify-center gap-2 rounded-lg bg-accent px-3 py-2 text-sm font-medium text-accent-fg hover:bg-accent-hover disabled:opacity-50"
+                        >
+                          {pending ? <><Loader2 size={14} className="animate-spin" /> Saving...</> : "Save record"}
+                        </button>
+                      </div>
+                    </form>
+                  )}
+                </>
               )}
 
-              {/* allowed full status list (reference) */}
               <details className="pt-1">
                 <summary className="cursor-pointer text-[11px] text-muted hover:text-foreground">All statuses</summary>
                 <ul className="mt-1.5 flex flex-wrap gap-1">
