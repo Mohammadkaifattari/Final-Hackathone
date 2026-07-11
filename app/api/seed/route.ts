@@ -1,11 +1,10 @@
 import { NextResponse } from "next/server";
-import { seedUsers } from "@/lib/seed";
+import { seedDemoData, seedUsers } from "@/lib/seed";
 
-// POST /api/seed — idempotently seed demo users (admin/technician/supervisor).
-// Safe to call repeatedly; existing users are left untouched.
 export async function POST() {
   try {
-    const result = await seedUsers();
+    await seedUsers();
+    const result = await seedDemoData();
     return NextResponse.json({ ok: true, ...result });
   } catch (err) {
     console.error("[seed] error:", err);
@@ -17,5 +16,5 @@ export async function POST() {
 }
 
 export async function GET() {
-  return NextResponse.json({ ok: true, message: "POST to seed demo users." });
+  return NextResponse.json({ ok: true, message: "POST to seed demo data." });
 }

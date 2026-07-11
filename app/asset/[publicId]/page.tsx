@@ -3,26 +3,27 @@ import { notFound } from "next/navigation";
 import { MapPin, CalendarClock, Gauge, ShieldCheck, Wrench, AlertTriangle, ArrowRight } from "lucide-react";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { ASSET_STATUS_STYLE } from "@/lib/status";
-import { getAssetByPublicId, getHistoryForAsset } from "@/lib/mock-data";
+import { getAssetByPublicId, getHistoryForAsset } from "@/lib/queries";
 import { formatDate, formatDateTime } from "@/lib/format";
 import type { Metadata } from "next";
 
 export async function generateMetadata({ params }: { params: Promise<{ publicId: string }> }): Promise<Metadata> {
   const { publicId } = await params;
-  const asset = getAssetByPublicId(publicId);
+  const asset = await getAssetByPublicId(publicId);
   if (!asset) return { title: "Asset not found · MaintainIQ" };
   return { title: `${asset.name} · MaintainIQ`, description: `Asset status for ${asset.name} (${asset.assetCode}).` };
 }
 
 export default async function PublicAssetPage({ params }: { params: Promise<{ publicId: string }> }) {
   const { publicId } = await params;
-  const asset = getAssetByPublicId(publicId);
+  const asset = await getAssetByPublicId(publicId);
   if (!asset) notFound();
 
   const isRetired = asset.status === "Retired";
   const isDown = asset.status === "Out of Service";
   // Public-safe recent activity: only the action + date, never internal notes/costs/staff.
-  const recentActivity = getHistoryForAsset(asset.id)
+  const history = await getHistoryForAsset(asset.id);
+  const recentActivity = history
     .slice(0, 4)
     .map((h) => ({ action: h.action, date: h.createdAt }));
 

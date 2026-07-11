@@ -3,10 +3,11 @@ import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
-import { ArrowLeft, Save, QrCode } from "lucide-react";
+import { ArrowLeft, Save, QrCode, Loader2, CheckCircle2 } from "lucide-react";
 import { Card, CardHeader, Button } from "@/components/ui/primitives";
 import { CATEGORIES, type AssetCondition } from "@/lib/types";
 import { pageFade } from "@/lib/motion";
+import { createAssetAction } from "@/app/actions/assets";
 
 const CONDITIONS: AssetCondition[] = ["Excellent", "Good", "Fair", "Poor"];
 
@@ -32,10 +33,21 @@ export function NewAssetForm() {
       return;
     }
     setSaving(true);
-    // Phase 3: server action creates the asset + generates publicId + QR.
-    await new Promise((r) => setTimeout(r, 700));
+    const result = await createAssetAction({
+      name: form.name,
+      assetCode: form.assetCode,
+      category: form.category,
+      location: form.location,
+      condition: form.condition,
+    });
     setSaving(false);
-    router.push("/console/assets");
+    if (!result.ok) {
+      setError(result.error || "An unknown error occurred.");
+      return;
+    }
+    // Success — go to the new asset's detail page (shows the generated QR).
+    router.push(`/console/assets/${result.id}`);
+    router.refresh();
   };
 
   return (
@@ -101,7 +113,7 @@ export function NewAssetForm() {
               Cancel
             </Link>
             <Button type="submit" disabled={saving}>
-              <Save size={16} /> {saving ? "Saving..." : "Create Asset"}
+              {saving ? <><Loader2 size={16} className="animate-spin" /> Creating...</> : <><Save size={16} /> Create Asset</>}
             </Button>
           </div>
         </form>
