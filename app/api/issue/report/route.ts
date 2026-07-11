@@ -1,27 +1,44 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { mockTriage } from "@/lib/mock-triage";
 import { reportIssueAction } from "@/app/actions/issues";
 import { PRIORITIES } from "@/lib/business-rules";
 
-const ReportSchema = z.object({
-  assetPublicId: z.string().trim().min(1),
-  complaint: z.string().trim().min(3, "Please describe the issue in a few words."),
-  reporterName: z.string().trim().optional(),
-  reporterContact: z.string().trim().optional(),
-  evidenceUrls: z.array(z.string().url()).max(6).optional(),
-  // optional triage the reporter reviewed/edited
-  triage: z
-    .object({
-      title: z.string().trim().max(160).optional(),
-      category: z.string().trim().optional(),
-      priority: z.enum(PRIORITIES).optional(),
-      causes: z.array(z.string().trim()).optional(),
-      checks: z.array(z.string().trim()).optional(),
-      edited: z.boolean().optional(),
-    })
-    .optional(),
+const AiSchema = z.object({
+  suggested: z.boolean().optional(),
+  edited: z.boolean().optional(),
+  rejectedAI: z.boolean().optional(),
+  possibleCauses: z.array(z.string().trim()).optional(),
+  initialChecks: z.array(z.string().trim()).optional(),
+  recurringWarning: z.string().trim().optional(),
 });
+
+const ReportSchema = z
+  .object({
+    publicId: z.string().trim().min(1).optional(),
+    assetPublicId: z.string().trim().min(1).optional(),
+    description: z.string().trim().min(3).optional(),
+    complaint: z.string().trim().min(3).optional(),
+    title: z.string().trim().max(160).optional(),
+    category: z.string().trim().optional(),
+    priority: z.enum(PRIORITIES).optional(),
+    reporterName: z.string().trim().optional(),
+    reporterContact: z.string().trim().optional(),
+    evidenceUrls: z.array(z.string().url()).max(6).optional(),
+    ai: AiSchema.optional(),
+    // legacy shape from earlier iterations
+    triage: z
+      .object({
+        title: z.string().trim().max(160).optional(),
+        category: z.string().trim().optional(),
+        priority: z.enum(PRIORITIES).optional(),
+        causes: z.array(z.string().trim()).optional(),
+        checks: z.array(z.string().trim()).optional(),
+        edited: z.boolean().optional(),
+      })
+      .optional(),
+  })
+  .refine((d) => !!(d.publicId || d.assetPublicId), { message: "Asset ID is required." })
+  .refine((d) => !!(d.description || d.complaint), { message: "Please describe the issue in a few words." });
 
 export async function POST(req: Request) {
   let body: unknown;
@@ -39,37 +56,43 @@ export async function POST(req: Request) {
     );
   }
 
-  // Run AI triage (mock now, real AI Gateway in Phase 4) — advisory only.
-  const triage = await mockTriage({
-    complaint: parsed.data.complaint,
-    assetName: parsed.data.assetPublicId,
-    assetCategory: parsed.data.triage?.category ?? "Other",
-  });
+  const data = parsed.data;
+  const assetPublicId = data.publicId ?? data.assetPublicId!;
+  const complaint = data.description ?? data.complaint!;
+  const legacy = data.triage;
 
-  // Merge any reporter edits over the suggestion.
-  const reporterOverrides = parsed.data.triage;
-  const ai = {
-    suggested: true,
-    edited: !!reporterOverrides?.edited,
-    possibleCauses: (reporterOverrides?.causes ?? triage.possibleCauses).filter(Boolean),
-    initialChecks: (reporterOverrides?.checks ?? triage.initialChecks).filter(Boolean),
-    recurringWarning: triage.recurringWarning,
-  };
+  const aiInput = data.ai;
+  const ai = aiInput
+    ? {
+        suggested: aiInput.rejectedAI ? false : (aiInput.suggested ?? false),
+        edited: aiInput.rejectedAI ? false : (aiInput.edited ?? false),
+        possibleCauses: (aiInput.possibleCauses ?? []).filter(Boolean),
+        initialChecks: (aiInput.initialChecks ?? []).filter(Boolean),
+        recurringWarning: aiInput.recurringWarning,
+      }
+    : legacy
+      ? {
+          suggested: true,
+          edited: !!legacy.edited,
+          possibleCauses: (legacy.causes ?? []).filter(Boolean),
+          initialChecks: (legacy.checks ?? []).filter(Boolean),
+        }
+      : undefined;
 
   const result = await reportIssueAction({
-    assetPublicId: parsed.data.assetPublicId,
-    complaint: parsed.data.complaint,
-    reporterName: parsed.data.reporterName,
-    reporterContact: parsed.data.reporterContact,
-    evidenceUrls: parsed.data.evidenceUrls,
-    title: reporterOverrides?.title ?? triage.title,
-    category: reporterOverrides?.category ?? triage.category,
-    priority: reporterOverrides?.priority ?? triage.priority,
+    assetPublicId,
+    complaint,
+    reporterName: data.reporterName,
+    reporterContact: data.reporterContact,
+    evidenceUrls: data.evidenceUrls,
+    title: data.title ?? legacy?.title,
+    category: data.category ?? legacy?.category,
+    priority: data.priority ?? legacy?.priority,
     ai,
   });
 
   if (!result.ok) {
     return NextResponse.json({ error: result.error }, { status: 400 });
   }
-  return NextResponse.json({ ok: true, issueId: result.issueId, issueNumber: result.issueNumber, triage });
+  return NextResponse.json({ ok: true, issueId: result.issueId, issueNumber: result.issueNumber });
 }

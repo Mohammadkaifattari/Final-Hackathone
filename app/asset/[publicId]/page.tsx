@@ -14,13 +14,21 @@ export async function generateMetadata({ params }: { params: Promise<{ publicId:
   return { title: `${asset.name} · MaintainIQ`, description: `Asset status for ${asset.name} (${asset.assetCode}).` };
 }
 
-export default async function PublicAssetPage({ params }: { params: Promise<{ publicId: string }> }) {
+export default async function PublicAssetPage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ publicId: string }>;
+  searchParams: Promise<{ reported?: string }>;
+}) {
   const { publicId } = await params;
+  const { reported } = await searchParams;
   const asset = await getAssetByPublicId(publicId);
   if (!asset) notFound();
 
   const isRetired = asset.status === "Retired";
   const isDown = asset.status === "Out of Service";
+  const justReported = reported === "1";
   // Public-safe recent activity: only the action + date, never internal notes/costs/staff.
   const history = await getHistoryForAsset(asset.id);
   const recentActivity = history
@@ -43,6 +51,13 @@ export default async function PublicAssetPage({ params }: { params: Promise<{ pu
       </header>
 
       <main className="mx-auto max-w-2xl px-4 py-6">
+        {justReported && (
+          <div className="mb-4 flex items-start gap-2.5 rounded-xl border border-[color-mix(in_oklch,var(--status-ok)_40%,transparent)] bg-[color-mix(in_oklch,var(--status-ok)_12%,transparent)] px-4 py-3">
+            <ShieldCheck size={18} className="mt-0.5 shrink-0 text-[var(--status-ok)]" />
+            <p className="text-sm text-foreground">Issue reported — our team has been notified.</p>
+          </div>
+        )}
+
         {/* status banner */}
         {isDown && (
           <div className="mb-4 flex items-start gap-2.5 rounded-xl border border-[color-mix(in_oklch,var(--status-down)_40%,transparent)] bg-[color-mix(in_oklch,var(--status-down)_12%,transparent)] px-4 py-3">
